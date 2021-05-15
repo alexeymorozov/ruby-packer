@@ -2,7 +2,7 @@
 
   compile.c - ruby node tree -> VM instruction sequence
 
-  $Author: naruse $
+  $Author$
   created at: 04/01/01 03:42:15 JST
 
   Copyright (C) 2004-2007 Koichi Sasada
@@ -1307,7 +1307,7 @@ iseq_set_arguments_keywords(rb_iseq_t *iseq, LINK_ANCHOR *const optargs,
 
     iseq->body->param.flags.has_kw = TRUE;
     iseq->body->param.keyword = keyword = ZALLOC_N(struct rb_iseq_param_keyword, 1);
-    keyword->bits_start = get_dyna_var_idx_at_raw(iseq, args->kw_rest_arg->nd_vid);
+    keyword->bits_start = get_dyna_var_idx_at_raw(iseq, args->kw_rest_arg->nd_cflag);
 
     while (node) {
 	NODE *val_node = node->nd_body->nd_value;
@@ -1346,8 +1346,8 @@ iseq_set_arguments_keywords(rb_iseq_t *iseq, LINK_ANCHOR *const optargs,
 
     keyword->num = kw;
 
-    if (args->kw_rest_arg->nd_cflag != 0) {
-	keyword->rest_start =  get_dyna_var_idx_at_raw(iseq, args->kw_rest_arg->nd_cflag);
+    if (args->kw_rest_arg->nd_vid != 0) {
+	keyword->rest_start =  get_dyna_var_idx_at_raw(iseq, args->kw_rest_arg->nd_vid);
 	iseq->body->param.flags.has_kwrest = TRUE;
     }
     keyword->required_num = rkw;
@@ -5037,8 +5037,11 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *const ret, NODE *node, int poppe
 		ADD_INSN1(ret, line, topn, INT2FIX(1));
 	    }
 	    ADD_SEND_WITH_FLAG(ret, line, aid, INT2FIX(1), INT2FIX(asgnflag));
+	    if (lskip && popped) {
+		ADD_LABEL(ret, lskip);
+	    }
 	    ADD_INSN(ret, line, pop);
-	    if (lskip) {
+	    if (lskip && !popped) {
 		ADD_LABEL(ret, lskip);
 	    }
 	}
@@ -5174,6 +5177,7 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *const ret, NODE *node, int poppe
 	    nd_type(node->nd_args) == NODE_ARRAY && node->nd_args->nd_alen == 1 &&
 	    nd_type(node->nd_args->nd_head) == NODE_STR &&
 	    ISEQ_COMPILE_DATA(iseq)->current_block == NULL &&
+            !ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal &&
 	    ISEQ_COMPILE_DATA(iseq)->option->specialized_instruction) {
 	    VALUE str = rb_fstring(node->nd_args->nd_head->nd_lit);
 	    node->nd_args->nd_head->nd_lit = str;
@@ -5357,7 +5361,9 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *const ret, NODE *node, int poppe
 	    if (liseq->body->param.flags.has_rest) {
 		/* rest argument */
 		int idx = liseq->body->local_table_size - liseq->body->param.rest_start;
+
 		ADD_GETLOCAL(args, line, idx, lvar_level);
+		ADD_INSN1(args, line, splatarray, Qfalse);
 
 		argc = liseq->body->param.rest_start + 1;
 		flag |= VM_CALL_ARGS_SPLAT;
@@ -6224,6 +6230,7 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *const ret, NODE *node, int poppe
 	    nd_type(node->nd_args) == NODE_ARRAY && node->nd_args->nd_alen == 2 &&
 	    nd_type(node->nd_args->nd_head) == NODE_STR &&
 	    ISEQ_COMPILE_DATA(iseq)->current_block == NULL &&
+            !ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal &&
 	    ISEQ_COMPILE_DATA(iseq)->option->specialized_instruction)
 	{
 	    VALUE str = rb_fstring(node->nd_args->nd_head->nd_lit);
@@ -6295,14 +6302,17 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *const ret, NODE *node, int poppe
       }
       case NODE_PRELUDE:{
 	const rb_compile_option_t *orig_opt = ISEQ_COMPILE_DATA(iseq)->option;
+	VALUE orig_cov = ISEQ_COVERAGE(iseq);
+	rb_compile_option_t new_opt = *orig_opt;
 	if (node->nd_orig) {
-	    rb_compile_option_t new_opt = *orig_opt;
 	    rb_iseq_make_compile_option(&new_opt, node->nd_orig);
 	    ISEQ_COMPILE_DATA(iseq)->option = &new_opt;
 	}
+	if (!new_opt.coverage_enabled) ISEQ_COVERAGE_SET(iseq, Qfalse);
 	CHECK(COMPILE_POPPED(ret, "prelude", node->nd_head));
 	CHECK(COMPILE_(ret, "body", node->nd_body, popped));
 	ISEQ_COMPILE_DATA(iseq)->option = orig_opt;
+	ISEQ_COVERAGE_SET(iseq, orig_cov);
 	break;
       }
       case NODE_LAMBDA:{

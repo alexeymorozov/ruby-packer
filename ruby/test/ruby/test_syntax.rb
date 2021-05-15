@@ -659,6 +659,32 @@ e"
     end
   end
 
+  def test_dedented_heredoc_expr_at_beginning
+    result = "  a\n" \
+             '#{1}'"\n"
+    expected = "  a\n" \
+             '#{1}'"\n"
+    assert_dedented_heredoc(expected, result)
+  end
+
+  def test_dedented_heredoc_continued_line
+    result = "  1\\\n" "  2\n"
+    expected = "1\\\n" "2\n"
+    assert_dedented_heredoc(expected, result)
+    assert_syntax_error("#{<<~"begin;"}\n#{<<~'end;'}", /can't find string "TEXT"/)
+    begin;
+      <<-TEXT
+      \
+      TEXT
+    end;
+    assert_syntax_error("#{<<~"begin;"}\n#{<<~'end;'}", /can't find string "TEXT"/)
+    begin;
+      <<~TEXT
+      \
+      TEXT
+    end;
+  end
+
   def test_lineno_after_heredoc
     bug7559 = '[ruby-dev:46737]'
     expected, _, actual = __LINE__, <<eom, __LINE__

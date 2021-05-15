@@ -2,7 +2,7 @@
 
   parse.y -
 
-  $Author: naruse $
+  $Author$
   created at: Fri May 28 18:02:42 JST 1993
 
   Copyright (C) 1993-2007 Yukihiro Matsumoto
@@ -6187,7 +6187,14 @@ parser_tokadd_string(struct parser_params *parser,
 	    switch (c) {
 	      case '\n':
 		if (func & STR_FUNC_QWORDS) break;
-		if (func & STR_FUNC_EXPAND) continue;
+		if (func & STR_FUNC_EXPAND) {
+		    if (!(func & STR_FUNC_INDENT) || (heredoc_indent < 0))
+			continue;
+		    if (c == term) {
+			c = '\\';
+			goto terminate;
+		    }
+		}
 		tokadd('\\');
 		break;
 
@@ -6265,6 +6272,7 @@ parser_tokadd_string(struct parser_params *parser,
         }
 	tokadd(c);
     }
+  terminate:
     *encp = enc;
     return c;
 }
@@ -6718,6 +6726,7 @@ parser_here_document(struct parser_params *parser, NODE *here)
     long len;
     VALUE str = 0;
     rb_encoding *enc = current_enc;
+    int bol;
 
     eos = RSTRING_PTR(here->nd_lit);
     len = RSTRING_LEN(here->nd_lit) - 1;
@@ -6754,7 +6763,14 @@ parser_here_document(struct parser_params *parser, NODE *here)
 	heredoc_restore(lex_strterm);
 	return 0;
     }
-    if (was_bol() && whole_match_p(eos, len, indent)) {
+    bol = was_bol();
+    /* `heredoc_line_indent == -1` means
+     * - "after an interpolation in the same line", or
+     * - "in a continuing line"
+     */
+    if (bol &&
+	(heredoc_line_indent != -1 || (heredoc_line_indent = 0)) &&
+	whole_match_p( eos, len, indent)) {
 	dispatch_heredoc_end();
 	heredoc_restore(lex_strterm);
 	return tSTRING_END;
@@ -6808,6 +6824,12 @@ parser_here_document(struct parser_params *parser, NODE *here)
 	newtok();
 	if (c == '#') {
 	    int t = parser_peek_variable_name(parser);
+	    if (heredoc_line_indent != -1) {
+		if (heredoc_indent > heredoc_line_indent) {
+		    heredoc_indent = heredoc_line_indent;
+		}
+		heredoc_line_indent = -1;
+	    }
 	    if (t) return t;
 	    tokadd('#');
 	    c = nextc();
@@ -6819,6 +6841,7 @@ parser_here_document(struct parser_params *parser, NODE *here)
 		goto restore;
 	    }
 	    if (c != '\n') {
+		if (c == '\\') heredoc_line_indent = -1;
 	      flush:
 		set_yylval_str(STR_NEW3(tok(), toklen(), enc, func));
 		flush_string_content(enc);
@@ -7228,6 +7251,7 @@ static void
 parser_prepare(struct parser_params *parser)
 {
     int c = nextc();
+    parser->token_info_enabled = !compile_for_eval && RTEST(ruby_verbose);
     switch (c) {
       case '#':
 	if (peek('!')) parser->has_shebang = 1;
@@ -7247,7 +7271,6 @@ parser_prepare(struct parser_params *parser)
     }
     pushback(c);
     parser->enc = rb_enc_get(lex_lastline);
-    parser->token_info_enabled = !compile_for_eval && RTEST(ruby_verbose);
 }
 
 #define IS_ARG() IS_lex_state(EXPR_ARG_ANY)
@@ -8102,8 +8125,8 @@ parser_yylex(struct parser_params *parser)
 	    }
 	    goto retry;
 	}
-	while ((c = nextc())) {
-	    switch (c) {
+	while (1) {
+	    switch (c = nextc()) {
 	      case ' ': case '\t': case '\f': case '\r':
 	      case '\13': /* '\v' */
 		space_seen = 1;
@@ -9135,8 +9158,7 @@ new_regexp_gen(struct parser_params *parser, NODE *node, int options)
 		if (reg_fragment_check(tail, options) && prev && !NIL_P(prev->nd_lit)) {
 		    VALUE lit = prev == node ? prev->nd_lit : prev->nd_head->nd_lit;
 		    if (!literal_concat0(parser, lit, tail)) {
-			node = 0;
-			break;
+			return NEW_NIL(); /* dummy node on error */
 		    }
 		    rb_str_resize(tail, 0);
 		    prev->nd_next = list->nd_next;
@@ -10121,8 +10143,8 @@ new_args_tail_gen(struct parser_params *parser, NODE *k, ID kr, ID b)
 	if (kr) arg_var(kr);
 	if (b) arg_var(b);
 
-	args->kw_rest_arg = NEW_DVAR(kw_bits);
-	args->kw_rest_arg->nd_cflag = kr;
+	args->kw_rest_arg = NEW_DVAR(kr);
+	args->kw_rest_arg->nd_cflag = kw_bits;
     }
     else if (kr) {
 	if (b) vtable_pop(lvtbl->args, 1); /* reorder */
@@ -11425,7 +11447,7 @@ ripper_initialize(int argc, VALUE *argv, VALUE self)
 	OBJ_FREEZE(fname);
     }
     else {
-        StringValue(fname);
+	StringValueCStr(fname);
 	fname = rb_str_new_frozen(fname);
     }
     parser_initialize(parser);

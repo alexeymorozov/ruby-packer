@@ -501,6 +501,15 @@ EOS
     assert_equal Float::INFINITY, loop.lazy.cycle.size
     assert_equal nil, lazy.select{}.cycle(4).size
     assert_equal nil, lazy.select{}.cycle.size
+
+    class << (obj = Object.new)
+      def each; end
+      def size; 0; end
+      include Enumerable
+    end
+    lazy = obj.lazy
+    assert_equal 0, lazy.cycle.size
+    assert_raise(TypeError) {lazy.cycle("").size}
   end
 
   def test_map_zip
@@ -559,5 +568,14 @@ EOS
     assert_raise(NoMethodError) do
       [1, 2, 3].lazy.map(&:undefined).map(&:to_s).force
     end
+  end
+
+  def test_uniq
+    u = (1..Float::INFINITY).lazy.uniq do |x|
+      raise "too big" if x > 10000
+      (x**2) % 10
+    end
+    assert_equal([1, 2, 3, 4, 5, 10], u.first(6))
+    assert_equal([1, 2, 3, 4, 5, 10], u.first(6))
   end
 end

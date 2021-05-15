@@ -2,7 +2,7 @@
 
   io.c -
 
-  $Author: naruse $
+  $Author$
   created at: Fri Oct 15 18:08:59 JST 1993
 
   Copyright (C) 1993-2007 Yukihiro Matsumoto
@@ -137,10 +137,6 @@ off_t __syscall(quad_t number, ...);
 #undef open
 #define open	rb_w32_uopen
 #endif
-
-// --------- [Enclose.io Hack start] ---------
-#include "enclose_io.h"
-// --------- [Enclose.io Hack end] ---------
 
 VALUE rb_cIO;
 VALUE rb_eEOFError;
@@ -2716,6 +2712,7 @@ io_write_nonblock(VALUE io, VALUE str, VALUE ex)
 
     rb_io_set_nonblock(fptr);
     n = write(fptr->fd, RSTRING_PTR(str), RSTRING_LEN(str));
+    RB_GC_GUARD(str);
 
     if (n == -1) {
 	int e = errno;
@@ -3020,6 +3017,12 @@ rb_io_getline_fast(rb_io_t *fptr, rb_encoding *enc, int chomp)
 		read_buffered_data(RSTRING_PTR(str)+len, pending - chomplen, fptr);
 		fptr->rbuf.off += chomplen;
 		fptr->rbuf.len -= chomplen;
+                if (pending == 1 && chomplen == 1 && len > 0) {
+                    if (RSTRING_PTR(str)[len-1] == '\r') {
+                        rb_str_resize(str, --len);
+                        break;
+                    }
+                }
 	    }
 	    len += pending - chomplen;
 	    if (cr != ENC_CODERANGE_BROKEN)
@@ -4281,7 +4284,7 @@ static void free_io_buffer(rb_io_buffer_t *buf);
 static void clear_codeconv(rb_io_t *fptr);
 
 static void
-fptr_finalize_flush(rb_io_t *fptr, int noraise)
+fptr_finalize_flush(rb_io_t *fptr, int noraise, int keepgvl)
 {
     VALUE err = Qnil;
     int fd = fptr->fd;
@@ -4329,7 +4332,7 @@ fptr_finalize_flush(rb_io_t *fptr, int noraise)
          * We assumes it is closed.  */
 
 	/**/
-	int keepgvl = !(mode & FMODE_WRITABLE);
+	keepgvl |= !(mode & FMODE_WRITABLE);
 	keepgvl |= noraise;
 	if ((maygvl_close(fd, keepgvl) < 0) && NIL_P(err))
 	    err = noraise ? Qtrue : INT2NUM(errno);
@@ -4346,7 +4349,7 @@ fptr_finalize_flush(rb_io_t *fptr, int noraise)
 static void
 fptr_finalize(rb_io_t *fptr, int noraise)
 {
-    fptr_finalize_flush(fptr, noraise);
+    fptr_finalize_flush(fptr, noraise, FALSE);
     free_io_buffer(&fptr->rbuf);
     free_io_buffer(&fptr->wbuf);
     clear_codeconv(fptr);
@@ -4426,6 +4429,13 @@ rb_io_memsize(const rb_io_t *fptr)
     return size;
 }
 
+#ifdef _WIN32
+/* keep GVL while closing to prevent crash on Windows */
+# define KEEPGVL TRUE
+#else
+# define KEEPGVL FALSE
+#endif
+
 int rb_notify_fd_close(int fd);
 static rb_io_t *
 io_close_fptr(VALUE io)
@@ -4450,8 +4460,8 @@ io_close_fptr(VALUE io)
 
     fd = fptr->fd;
     busy = rb_notify_fd_close(fd);
-    fptr_finalize_flush(fptr, FALSE);
     if (busy) {
+	fptr_finalize_flush(fptr, FALSE, KEEPGVL);
 	do rb_thread_schedule(); while (rb_notify_fd_close(fd));
     }
     rb_io_fptr_cleanup(fptr, FALSE);
@@ -7641,8 +7651,7 @@ rb_io_make_open_file(VALUE obj)
  *    If +mode+ parameter is given, this parameter will be bitwise-ORed.
  *
  *  :\external_encoding ::
- *    External encoding for the IO.  "-" is a synonym for the default external
- *    encoding.
+ *    External encoding for the IO.
  *
  *  :\internal_encoding ::
  *    Internal encoding for the IO.  "-" is a synonym for the default internal
@@ -10099,8 +10108,8 @@ io_s_write(int argc, VALUE *argv, int binary)
  *  Opens the file, optionally seeks to the given <i>offset</i>, writes
  *  <i>string</i>, then returns the length written.
  *  <code>write</code> ensures the file is closed before returning.
- *  If <i>offset</i> is not given, the file is truncated.  Otherwise,
- *  it is not truncated.
+ *  If <i>offset</i> is not given in write mode, the file is truncated.
+ *  Otherwise, it is not truncated.
  *
  *    IO.write("testfile", "0123456789", 20)  #=> 10
  *    # File could contain:  "This is line one\nThi0123456789two\nThis is line three\nAnd so on...\n"

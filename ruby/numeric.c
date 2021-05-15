@@ -2,7 +2,7 @@
 
   numeric.c -
 
-  $Author: naruse $
+  $Author$
   created at: Fri Aug 13 18:33:09 JST 1993
 
   Copyright (C) 1993-2007 Yukihiro Matsumoto
@@ -1782,8 +1782,8 @@ flo_is_infinite_p(VALUE num)
  *
  */
 
-static VALUE
-flo_is_finite_p(VALUE num)
+VALUE
+rb_flo_is_finite_p(VALUE num)
 {
     double value = RFLOAT_VALUE(num);
 
@@ -3629,7 +3629,7 @@ fix_fdiv_double(VALUE x, VALUE y)
         return (double)FIX2LONG(x) / RFLOAT_VALUE(y);
     }
     else {
-        return RFLOAT_VALUE(rb_num_coerce_bin(x, y, rb_intern("fdiv")));
+        return NUM2DBL(rb_num_coerce_bin(x, y, rb_intern("fdiv")));
     }
 }
 
@@ -5179,10 +5179,11 @@ int_truncate(int argc, VALUE* argv, VALUE num)
  *   puts 1.object_id == a.object_id   #=> true
  *
  * There can only ever be one instance of the integer +1+, for example. Ruby ensures this
- * by preventing instantiation and duplication.
+ * by preventing instantiation. If duplication is attempted, the same instance is returned.
  *
- *   Integer.new(1)   #=> NoMethodError: undefined method `new' for Integer:Class
- *   1.dup            #=> TypeError: can't dup Integer
+ *   Integer.new(1)                   #=> NoMethodError: undefined method `new' for Integer:Class
+ *   1.dup                            #=> 1
+ *   1.object_id == 1.dup.object_id   #=> true
  *
  * For this reason, Numeric should be used when defining other numeric classes.
  *
@@ -5495,7 +5496,7 @@ Init_Numeric(void)
 
     rb_define_method(rb_cFloat, "nan?",      flo_is_nan_p, 0);
     rb_define_method(rb_cFloat, "infinite?", flo_is_infinite_p, 0);
-    rb_define_method(rb_cFloat, "finite?",   flo_is_finite_p, 0);
+    rb_define_method(rb_cFloat, "finite?",   rb_flo_is_finite_p, 0);
     rb_define_method(rb_cFloat, "next_float", flo_next_float, 0);
     rb_define_method(rb_cFloat, "prev_float", flo_prev_float, 0);
     rb_define_method(rb_cFloat, "positive?", flo_positive_p, 0);

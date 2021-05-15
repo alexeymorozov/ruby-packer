@@ -1,3 +1,75 @@
+Version 2.0.9
+=============
+
+Security fixes
+--------------
+
+* OpenSSL::X509::Name#<=> could incorrectly return 0 (= equal) for non-equal
+  objects. CVE-2018-16395 is assigned for this issue.
+  https://hackerone.com/reports/387250
+
+Bug fixes
+---------
+
+* Fixed OpenSSL::PKey::*.{new,generate} immediately aborting if the thread is
+  interrupted.
+  [[Bug #14882]](https://bugs.ruby-lang.org/issues/14882)
+  [[GitHub #205]](https://github.com/ruby/openssl/pull/205)
+* Fixed OpenSSL::X509::Name#to_s failing with OpenSSL::X509::NameError if
+  called against an empty instance.
+  [[GitHub #200]](https://github.com/ruby/openssl/issues/200)
+  [[GitHub #211]](https://github.com/ruby/openssl/pull/211)
+
+
+Version 2.0.8
+=============
+
+Bug fixes
+---------
+
+* OpenSSL::Cipher#pkcs5_keyivgen raises an error when a negative iteration
+  count is given.
+  [[GitHub #184]](https://github.com/ruby/openssl/pull/184)
+* Fixed build with LibreSSL 2.7.
+  [[GitHub #192]](https://github.com/ruby/openssl/issues/192)
+  [[GitHub #193]](https://github.com/ruby/openssl/pull/193)
+
+
+Version 2.0.7
+=============
+
+Bug fixes
+---------
+
+* OpenSSL::Cipher#auth_data= could segfault if called against a non-AEAD cipher.
+  [[Bug #14024]](https://bugs.ruby-lang.org/issues/14024)
+* OpenSSL::X509::Certificate#public_key= (and similar methods) could segfault
+  when an instance of OpenSSL::PKey::PKey with no public key components is
+  passed.
+  [[Bug #14087]](https://bugs.ruby-lang.org/issues/14087)
+  [[GitHub #168]](https://github.com/ruby/openssl/pull/168)
+
+
+Version 2.0.6
+=============
+
+Bug fixes
+---------
+
+* The session_remove_cb set to an OpenSSL::SSL::SSLContext is no longer called
+  during GC.
+* A possible deadlock in OpenSSL::SSL::SSLSocket#sysread is fixed.
+  [[GitHub #139]](https://github.com/ruby/openssl/pull/139)
+* OpenSSL::BN#hash could return an unnormalized fixnum value on Windows.
+  [[Bug #13877]](https://bugs.ruby-lang.org/issues/13877)
+* OpenSSL::SSL::SSLSocket#sysread and #sysread_nonblock set the length of the
+  destination buffer String to 0 on error.
+  [[GitHub #153]](https://github.com/ruby/openssl/pull/153)
+* Possible deadlock is fixed. This happened only when built with older versions
+  of OpenSSL (before 1.1.0) or LibreSSL.
+  [[GitHub #155]](https://github.com/ruby/openssl/pull/155)
+
+
 Version 2.0.5
 =============
 
@@ -150,7 +222,7 @@ Notable changes
   - A new option 'verify_hostname' is added to OpenSSL::SSL::SSLContext. When it
     is enabled, and the SNI hostname is also set, the hostname verification on
     the server certificate is automatically performed. It is now enabled by
-    OpenSSL::SSL::Context#set_params.
+    OpenSSL::SSL::SSLContext#set_params.
     [[GH ruby/openssl#60]](https://github.com/ruby/openssl/pull/60)
 
 Removals

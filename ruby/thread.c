@@ -2,7 +2,7 @@
 
   thread.c -
 
-  $Author: naruse $
+  $Author$
 
   Copyright (C) 2004-2007 Koichi Sasada
 
@@ -385,7 +385,7 @@ set_unblock_function(rb_thread_t *th, rb_unblock_function_t *func, void *arg,
 	}
 
 	native_mutex_lock(&th->interrupt_lock);
-    } while (RUBY_VM_INTERRUPTED_ANY(th) &&
+    } while (!th->raised_flag && RUBY_VM_INTERRUPTED_ANY(th) &&
 	     (native_mutex_unlock(&th->interrupt_lock), TRUE));
 
     if (old) *old = th->unblock;
@@ -630,19 +630,20 @@ thread_start_func_2(rb_thread_t *th, VALUE *stack_start, VALUE *register_stack_s
 	    else if (rb_obj_is_kind_of(errinfo, rb_eSystemExit)) {
 		/* exit on main_thread. */
 	    }
-	    else if (th->vm->thread_abort_on_exception ||
-		     th->abort_on_exception || RTEST(ruby_debug)) {
-		/* exit on main_thread */
-	    }
-	    else if (th->report_on_exception) {
-		VALUE mesg = rb_thread_inspect(th->self);
-		rb_str_cat_cstr(mesg, " terminated with exception:\n");
-		rb_write_error_str(mesg);
-		rb_threadptr_error_print(th, errinfo);
-		errinfo = Qnil;
-	    }
 	    else {
-		errinfo = Qnil;
+		if (th->report_on_exception) {
+		    VALUE mesg = rb_thread_inspect(th->self);
+		    rb_str_cat_cstr(mesg, " terminated with exception:\n");
+		    rb_write_error_str(mesg);
+		    rb_threadptr_error_print(th, errinfo);
+		}
+		if (th->vm->thread_abort_on_exception ||
+		    th->abort_on_exception || RTEST(ruby_debug)) {
+		    /* exit on main_thread */
+		}
+		else {
+		    errinfo = Qnil;
+		}
 	    }
 	    th->value = Qnil;
 	}
@@ -3703,23 +3704,53 @@ update_timeval(struct timeval *timeout, double limit)
     }
 }
 
+struct select_set {
+    rb_fdset_t read;
+    rb_fdset_t write;
+    rb_fdset_t except;
+};
+
+static size_t
+select_set_memsize(const void *p)
+{
+    return sizeof(struct select_set);
+}
+
+static void
+select_set_free(void *p)
+{
+    struct select_set *orig = p;
+
+    rb_fd_term(&orig->read);
+    rb_fd_term(&orig->write);
+    rb_fd_term(&orig->except);
+    xfree(orig);
+}
+
+static const rb_data_type_t select_set_type = {
+    "select_set",
+    {NULL, select_set_free, select_set_memsize,},
+    0, 0, RUBY_TYPED_FREE_IMMEDIATELY
+};
+
 static int
 do_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds,
 	  rb_fdset_t *exceptfds, struct timeval *timeout)
 {
     int MAYBE_UNUSED(result);
     int lerrno;
-    rb_fdset_t MAYBE_UNUSED(orig_read);
-    rb_fdset_t MAYBE_UNUSED(orig_write);
-    rb_fdset_t MAYBE_UNUSED(orig_except);
     double limit = 0;
     struct timeval wait_rest;
     rb_thread_t *th = GET_THREAD();
+    VALUE o;
+    struct select_set *orig;
+
+    o = TypedData_Make_Struct(0, struct select_set, &select_set_type, orig);
 
 #define do_select_update() \
-    (restore_fdset(readfds, &orig_read), \
-     restore_fdset(writefds, &orig_write), \
-     restore_fdset(exceptfds, &orig_except), \
+    (restore_fdset(readfds, &orig->read), \
+     restore_fdset(writefds, &orig->write), \
+     restore_fdset(exceptfds, &orig->except), \
      update_timeval(timeout, limit), \
      TRUE)
 
@@ -3731,7 +3762,7 @@ do_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds,
     }
 
 #define fd_init_copy(f) \
-    (f##fds) ? rb_fd_init_copy(&orig_##f, f##fds) : rb_fd_no_init(&orig_##f)
+    (f##fds) ? rb_fd_init_copy(&orig->f, f##fds) : rb_fd_no_init(&orig->f)
     fd_init_copy(read);
     fd_init_copy(write);
     fd_init_copy(except);
@@ -3746,14 +3777,13 @@ do_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds,
 	    if (result < 0) lerrno = errno;
 	}, ubf_select, th, FALSE);
 
-	RUBY_VM_CHECK_INTS_BLOCKING(th);
+	RUBY_VM_CHECK_INTS_BLOCKING(th); /* may raise */
     } while (result < 0 && retryable(errno = lerrno) && do_select_update());
 
-#define fd_term(f) if (f##fds) rb_fd_term(&orig_##f)
-    fd_term(read);
-    fd_term(write);
-    fd_term(except);
-#undef fd_term
+    /* didn't raise, perform cleanup ourselves */
+    select_set_free(orig);
+    rb_gc_force_recycle(o);
+
 
     return result;
 }

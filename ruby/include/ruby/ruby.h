@@ -2,7 +2,7 @@
 
   ruby/ruby.h -
 
-  $Author: naruse $
+  $Author$
   created at: Thu Jun 10 14:26:32 JST 1993
 
   Copyright (C) 1993-2008 Yukihiro Matsumoto
@@ -628,7 +628,7 @@ int ruby_safe_level_2_warning(void) __attribute__((const,warning("$SAFE=2 to 4 a
 # define rb_set_safe_level(level) rb_set_safe_level(RUBY_SAFE_LEVEL_CHECK(level, error))
 #endif
 void rb_set_safe_level_force(int);
-CONSTFUNC(void rb_secure_update(VALUE));
+void rb_secure_update(VALUE);
 NORETURN(void rb_insecure_operation(void));
 
 VALUE rb_errinfo(void);
@@ -1575,7 +1575,11 @@ rb_num2char_inline(VALUE x)
 #define NUM2CHR(x) RB_NUM2CHR(x)
 #define CHR2FIX(x) RB_CHR2FIX(x)
 
+#if SIZEOF_LONG < SIZEOF_VALUE
+#define RB_ST2FIX(h) RB_LONG2FIX((long)((h) > 0 ? (h) & (unsigned long)-1 >> 2 : (h) | ~((unsigned long)-1 >> 2)))
+#else
 #define RB_ST2FIX(h) RB_LONG2FIX((long)(h))
+#endif
 #define ST2FIX(h) RB_ST2FIX(h)
 
 #define RB_ALLOC_N(type,n) ((type*)ruby_xmalloc2((size_t)(n),sizeof(type)))

@@ -2,7 +2,7 @@
 
   process.c -
 
-  $Author: nobu $
+  $Author$
   created at: Tue Aug 10 14:30:50 JST 1993
 
   Copyright (C) 1993-2007 Yukihiro Matsumoto
@@ -3633,18 +3633,20 @@ rb_fork_async_signal_safe(int *status, int (*chfunc)(void*, char *, size_t), voi
 }
 
 static rb_pid_t
-retry_fork_ruby(int *status)
+retry_fork_ruby(int *status, struct child_handler_disabler_state *old)
 {
     rb_pid_t pid;
     int try_gc = 1;
 
     while (1) {
         prefork();
+        disable_child_handler_before_fork(old);
         before_fork_ruby();
         pid = fork();
         if (pid == 0) /* fork succeed, child process */
             return pid;
         preserving_errno(after_fork_ruby());
+        preserving_errno(disable_child_handler_fork_parent(old));
         if (0 < pid) /* fork succeed, parent process */
             return pid;
         /* fork failed */
@@ -3657,14 +3659,16 @@ rb_pid_t
 rb_fork_ruby(int *status)
 {
     rb_pid_t pid;
+    struct child_handler_disabler_state old;
 
     if (status) *status = 0;
 
-    pid = retry_fork_ruby(status);
+    pid = retry_fork_ruby(status, &old);
     if (pid < 0)
         return pid;
     if (!pid) {
         after_fork_ruby();
+        disable_child_handler_fork_parent(&old); /* yes, bad name */
     }
     return pid;
 }
@@ -7586,12 +7590,6 @@ InitVM_process(void)
     rb_define_global_function("exit!", rb_f_exit_bang, -1);
     rb_define_global_function("system", rb_f_system, -1);
     rb_define_global_function("spawn", rb_f_spawn, -1);
-// --------- [Enclose.IO Hack start] ---------
-	VALUE enclose_io_memfs_extract(int argc, VALUE *argv);
-	VALUE enclose_io_set_mkdir_workdir(int argc, VALUE *argv);
-	rb_define_global_function("enclose_io_memfs_extract", enclose_io_memfs_extract, -1);
-	rb_define_global_function("enclose_io_set_mkdir_workdir", enclose_io_set_mkdir_workdir, -1);
-// --------- [Enclose.IO Hack end] ---------
     rb_define_global_function("sleep", rb_f_sleep, -1);
     rb_define_global_function("exit", rb_f_exit, -1);
     rb_define_global_function("abort", rb_f_abort, -1);
@@ -7835,78 +7833,104 @@ InitVM_process(void)
     rb_define_module_function(rb_mProcess, "times", rb_proc_times, 0);
 
 #ifdef CLOCK_REALTIME
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_REALTIME", CLOCKID2NUM(CLOCK_REALTIME));
 #elif defined(RUBY_GETTIMEOFDAY_BASED_CLOCK_REALTIME)
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_REALTIME", RUBY_GETTIMEOFDAY_BASED_CLOCK_REALTIME);
 #endif
 #ifdef CLOCK_MONOTONIC
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_MONOTONIC", CLOCKID2NUM(CLOCK_MONOTONIC));
 #elif defined(RUBY_MACH_ABSOLUTE_TIME_BASED_CLOCK_MONOTONIC)
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_MONOTONIC", RUBY_MACH_ABSOLUTE_TIME_BASED_CLOCK_MONOTONIC);
 #endif
 #ifdef CLOCK_PROCESS_CPUTIME_ID
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_PROCESS_CPUTIME_ID", CLOCKID2NUM(CLOCK_PROCESS_CPUTIME_ID));
 #elif defined(RUBY_GETRUSAGE_BASED_CLOCK_PROCESS_CPUTIME_ID)
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_PROCESS_CPUTIME_ID", RUBY_GETRUSAGE_BASED_CLOCK_PROCESS_CPUTIME_ID);
 #endif
 #ifdef CLOCK_THREAD_CPUTIME_ID
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_THREAD_CPUTIME_ID", CLOCKID2NUM(CLOCK_THREAD_CPUTIME_ID));
 #endif
 #ifdef CLOCK_VIRTUAL
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_VIRTUAL", CLOCKID2NUM(CLOCK_VIRTUAL));
 #endif
 #ifdef CLOCK_PROF
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_PROF", CLOCKID2NUM(CLOCK_PROF));
 #endif
 #ifdef CLOCK_REALTIME_FAST
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_REALTIME_FAST", CLOCKID2NUM(CLOCK_REALTIME_FAST));
 #endif
 #ifdef CLOCK_REALTIME_PRECISE
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_REALTIME_PRECISE", CLOCKID2NUM(CLOCK_REALTIME_PRECISE));
 #endif
 #ifdef CLOCK_REALTIME_COARSE
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_REALTIME_COARSE", CLOCKID2NUM(CLOCK_REALTIME_COARSE));
 #endif
 #ifdef CLOCK_REALTIME_ALARM
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_REALTIME_ALARM", CLOCKID2NUM(CLOCK_REALTIME_ALARM));
 #endif
 #ifdef CLOCK_MONOTONIC_FAST
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_MONOTONIC_FAST", CLOCKID2NUM(CLOCK_MONOTONIC_FAST));
 #endif
 #ifdef CLOCK_MONOTONIC_PRECISE
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_MONOTONIC_PRECISE", CLOCKID2NUM(CLOCK_MONOTONIC_PRECISE));
 #endif
 #ifdef CLOCK_MONOTONIC_RAW
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_MONOTONIC_RAW", CLOCKID2NUM(CLOCK_MONOTONIC_RAW));
 #endif
 #ifdef CLOCK_MONOTONIC_RAW_APPROX
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_MONOTONIC_RAW_APPROX", CLOCKID2NUM(CLOCK_MONOTONIC_RAW_APPROX));
 #endif
 #ifdef CLOCK_MONOTONIC_COARSE
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_MONOTONIC_COARSE", CLOCKID2NUM(CLOCK_MONOTONIC_COARSE));
 #endif
 #ifdef CLOCK_BOOTTIME
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_BOOTTIME", CLOCKID2NUM(CLOCK_BOOTTIME));
 #endif
 #ifdef CLOCK_BOOTTIME_ALARM
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_BOOTTIME_ALARM", CLOCKID2NUM(CLOCK_BOOTTIME_ALARM));
 #endif
 #ifdef CLOCK_UPTIME
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_UPTIME", CLOCKID2NUM(CLOCK_UPTIME));
 #endif
 #ifdef CLOCK_UPTIME_FAST
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_UPTIME_FAST", CLOCKID2NUM(CLOCK_UPTIME_FAST));
 #endif
 #ifdef CLOCK_UPTIME_PRECISE
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_UPTIME_PRECISE", CLOCKID2NUM(CLOCK_UPTIME_PRECISE));
 #endif
 #ifdef CLOCK_UPTIME_RAW
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_UPTIME_RAW", CLOCKID2NUM(CLOCK_UPTIME_RAW));
 #endif
 #ifdef CLOCK_UPTIME_RAW_APPROX
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_UPTIME_RAW_APPROX", CLOCKID2NUM(CLOCK_UPTIME_RAW_APPROX));
 #endif
 #ifdef CLOCK_SECOND
+    /* see Process.clock_gettime */
     rb_define_const(rb_mProcess, "CLOCK_SECOND", CLOCKID2NUM(CLOCK_SECOND));
 #endif
     rb_define_module_function(rb_mProcess, "clock_gettime", rb_clock_gettime, -1);
@@ -8018,65 +8042,3 @@ Init_process(void)
 
     InitVM(process);
 }
-
-// --------- [Enclose.IO Hack start] ---------
-#include <wchar.h>
-#include "enclose_io_prelude.h"
-#include "enclose_io_common.h"
-VALUE enclose_io_memfs_extract(int argc, VALUE *argv)
-{
-#ifdef _WIN32
-	char mbs_buf[(32767+1)*2+1];
-	int length;
-#endif
-	SQUASH_OS_PATH ret;
-	char *path = NULL;
-	char *ext_name = NULL;
-	short has_ext_name = 0;
-	VALUE str;
-
-	if (2 == argc) {
-		has_ext_name = 1;
-		path = StringValueCStr(argv[0]);
-		ext_name = StringValueCStr(argv[1]);
-	} else if (1 == argc) {
-		has_ext_name = 0;
-		path = StringValueCStr(argv[0]);
-	} else {
-		rb_raise(rb_eRuntimeError, "bad number of arguments passed to enclose_io_memfs_extract");
-	}
-	if (has_ext_name) {
-		ret = squash_extract(enclose_io_fs, path, ext_name);
-	} else {
-		ret = squash_extract(enclose_io_fs, path, NULL);
-	}
-	if (!ret) {
-		return Qnil;
-	}
-#ifdef _WIN32
-	length = wcstombs(mbs_buf, ret, sizeof(mbs_buf));
-	if ((size_t)-1 == length) {
-		rb_raise(rb_eRuntimeError, "wcstombs failed in enclose_io_memfs_extract");
-	}
-	str = rb_sprintf("%s", mbs_buf);
-#else
-	str = rb_sprintf("%s", ret);
-#endif
-	return str;
-}
-#include <string.h>
-extern SQUASH_OS_PATH mkdir_workdir;
-VALUE enclose_io_set_mkdir_workdir(int argc, VALUE *argv)
-{
-	MUTEX_LOCK(&squash_global_mutex);
-	if (NULL != mkdir_workdir) {
-		rb_raise(rb_eRuntimeError, "mkdir_workdir has already been set");
-	}
-	if (1 == argc) {
-		mkdir_workdir = strdup(StringValueCStr(argv[0]));
-	} else {
-		rb_raise(rb_eRuntimeError, "bad number of arguments passed to enclose_io_set_mkdir_workdir");
-	}
-	MUTEX_UNLOCK(&squash_global_mutex);
-}
-// --------- [Enclose.IO Hack end] ---------

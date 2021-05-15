@@ -53,11 +53,6 @@
 #include "win32/file.h"
 #include "internal.h"
 #include "encindex.h"
-
-// --------- [Enclose.io Hack start] ---------
-#include "enclose_io.h"
-// --------- [Enclose.io Hack end] ---------
-
 #define isdirsep(x) ((x) == '/' || (x) == '\\')
 
 #if defined _MSC_VER && _MSC_VER <= 1200
@@ -835,11 +830,6 @@ static int w32_cmdvector(const WCHAR *, char ***, UINT, rb_encoding *);
 void
 rb_w32_sysinit(int *argc, char ***argv)
 {
-    int new_argc;
-    char **new_argv;
-    UINT cp;
-    size_t i;
-
 #if RUBY_MSVCRT_VERSION >= 80
     static void set_pioinfo_extra(void);
 
@@ -856,28 +846,6 @@ rb_w32_sysinit(int *argc, char ***argv)
     // subvert cmd.exe's feeble attempt at command line parsing
     //
     *argc = w32_cmdvector(GetCommandLineW(), argv, CP_UTF8, &OnigEncodingUTF_8);
-
-    // --------- [Enclose.io Hack start] ---------
-    #ifdef ENCLOSE_IO_ENTRANCE
-    new_argc = *argc;
-    new_argv = *argv;
-    cp = CP_UTF8;
-    if (NULL == getenv("ENCLOSE_IO_USE_ORIGINAL_RUBY")) {
-        new_argv = (char **)malloc( (*argc + 1) * sizeof(char *));
-        assert(new_argv);
-        new_argv[0] = (*argv)[0];
-        new_argv[1] = ENCLOSE_IO_ENTRANCE;
-        for (i = 1; i < *argc; ++i) {
-               new_argv[2 + i - 1] = (*argv)[i];
-        }
-        new_argc = *argc + 1;
-
-        *argc = new_argc;
-        *argv = new_argv;
-    }
-    #endif
-    // --------- [Enclose.io Hack end] ---------
-
 
     //
     // Now set up the correct time stuff
@@ -1597,7 +1565,7 @@ cmdglob(NtCmdLineElement *patt, NtCmdLineElement **tail, UINT cp, rb_encoding *e
     if (patt->len >= PATH_MAX)
 	if (!(buf = malloc(patt->len + 1))) return 0;
 
-    strlcpy(buf, patt->str, patt->len + 1);
+    memcpy(buf, patt->str, patt->len);
     buf[patt->len] = '\0';
     translate_char(buf, '\\', '/', cp);
     status = ruby_brace_glob_with_enc(buf, 0, insert, (VALUE)&tail, enc);
@@ -1842,9 +1810,6 @@ w32_cmdvector(const WCHAR *cmd, char ***vec, UINT cp, rb_encoding *enc)
 	curr = (NtCmdLineElement *)calloc(sizeof(NtCmdLineElement), 1);
 	if (!curr) goto do_nothing;
 	curr->str = rb_w32_wstr_to_mbstr(cp, base, len, &curr->len);
-	if (curr->str && (curr->str = realloc(curr->str, curr->len + 1))) {
-	    curr->str[curr->len] = '\0';
-	}
 	curr->flags |= NTMALLOC;
 
 	if (globbing && (tail = cmdglob(curr, cmdtail, cp, enc))) {
@@ -1898,7 +1863,8 @@ w32_cmdvector(const WCHAR *cmd, char ***vec, UINT cp, rb_encoding *enc)
     cptr = buffer + (elements+1) * sizeof(char *);
 
     while ((curr = cmdhead) != 0) {
-	strlcpy(cptr, curr->str, curr->len + 1);
+	memcpy(cptr, curr->str, curr->len);
+	cptr[curr->len] = '\0';
 	*vptr++ = cptr;
 	cptr += curr->len + 1;
 	cmdhead = curr->next;
@@ -2459,6 +2425,7 @@ EXTERN_C _CRTIMP ioinfo * __pioinfo[];
 #endif
 static inline ioinfo* _pioinfo(int);
 
+
 #define IOINFO_ARRAY_ELTS	(1 << IOINFO_L2E)
 #define _osfhnd(i)  (_pioinfo(i)->osfhnd)
 #define _osfile(i)  (_pioinfo(i)->osfile)
@@ -2533,7 +2500,7 @@ set_pioinfo_extra(void)
 #else
     __pioinfo = *(ioinfo***)(p);
 #endif
-#else
+#endif
     int fd;
 
     fd = _open("NUL", O_RDONLY);
@@ -2548,7 +2515,6 @@ set_pioinfo_extra(void)
 	/* not found, maybe something wrong... */
 	pioinfo_extra = 0;
     }
-#endif
 }
 #else
 #define pioinfo_extra 0
@@ -4993,7 +4959,7 @@ rb_w32_read_reparse_point(const WCHAR *path, rb_w32_reparse_buffer_t *rp,
 	    ret = rp->SymbolicLinkReparseBuffer.PrintNameLength;
 	    *len = ret / sizeof(WCHAR);
 	}
-	else { /* IO_REPARSE_TAG_MOUNT_POINT */
+	else if (rp->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT) {
 	    static const WCHAR *volume = L"Volume{";
 	    enum {volume_prefix_len = rb_strlen_lit("\\??\\")};
 	    name = ((char *)rp->MountPointReparseBuffer.PathBuffer +
@@ -5005,6 +4971,9 @@ rb_w32_read_reparse_point(const WCHAR *path, rb_w32_reparse_buffer_t *rp,
 	    if (ret > sizeof(volume) - 1 * sizeof(WCHAR) &&
 		memcmp(name, volume, sizeof(volume) - 1 * sizeof(WCHAR)) == 0)
 		return -1;
+	}
+	else {
+	    return -1;
 	}
 	*result = name;
 	if (e) {
@@ -6796,6 +6765,10 @@ constat_apply(HANDLE handle, struct constat *s, WCHAR w)
     }
 }
 
+/* get rid of console writing bug; assume WriteConsole and WriteFile
+ * on a console share the same limit. */
+static const long MAXSIZE_CONSOLE_WRITING = 31366;
+
 /* License: Ruby's */
 static long
 constat_parse(HANDLE h, struct constat *s, const WCHAR **ptrp, long *lenp)
@@ -6850,7 +6823,7 @@ constat_parse(HANDLE h, struct constat *s, const WCHAR **ptrp, long *lenp)
 	    }
 	    rest = 0;
 	}
-	else {
+	else if ((rest = *lenp - len) < MAXSIZE_CONSOLE_WRITING) {
 	    continue;
 	}
 	*ptrp = ptr;
@@ -6956,11 +6929,6 @@ rb_w32_read(int fd, void *buf, size_t size)
     // validate fd by using _get_osfhandle() because we cannot access _nhandle
     if (_get_osfhandle(fd) == -1) {
 	return -1;
-    }
-
-    if (SQUASH_VALID_VFD(fd)) {
-	// TODO how about Binary Mode File I/O?
-	return _read(fd, buf, size);
     }
 
     if (_osfile(fd) & FTEXT) {
@@ -7113,8 +7081,7 @@ rb_w32_write(int fd, const void *buf, size_t size)
 
     ret = 0;
   retry:
-    /* get rid of console writing bug */
-    len = (_osfile(fd) & FDEV) ? min(32 * 1024, size) : size;
+    len = (_osfile(fd) & FDEV) ? min(MAXSIZE_CONSOLE_WRITING, size) : size;
     size -= len;
   retry2:
 
