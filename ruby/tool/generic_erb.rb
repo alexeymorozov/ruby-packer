@@ -23,7 +23,12 @@ opt = OptionParser.new do |o|
   o.on('-x', '--source') {source = true}
   o.on('--color') {color = true}
   vpath.def_options(o)
-  o.order!(ARGV)
+  puts "ARGV before #order!:"
+  p ARGV
+  res = o.order!(ARGV)
+  puts "ARGV after #order!:"
+  p ARGV
+  res
 end
 unchanged = "unchanged"
 updated = "updated"
