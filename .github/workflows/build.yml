@@ -54,7 +54,8 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        repository: metanorma/packed-mn
+        repository: alexeymorozov/packed-mn
+        ref: ruby-2.4.10
 
     - uses: ruby/setup-ruby@v1
       with:
