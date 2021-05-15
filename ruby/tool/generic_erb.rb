@@ -36,7 +36,10 @@ if color or (color == nil && STDOUT.tty?)
     updated = "#{beg}#{colors["fail"] || "31;1"}m#{updated}#{reset}"
   end
 end
+p ARGV
 template = ARGV.shift or abort opt.to_s
+p ARGV
+p template
 erb = ERB.new(File.read(template), nil, '%-')
 erb.filename = template
 result = source ? erb.src : erb.result
