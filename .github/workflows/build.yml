@@ -23,6 +23,10 @@ jobs:
         name: rubyc-linux-x64
         path: rubyc-linux-x64
 
+    - run: |
+        sudo rm -rf .rubyc-build.*
+        sudo rm -f rubyc-linux-x64
+
   macos:
     runs-on: macos-latest
     steps:
