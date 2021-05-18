@@ -10,6 +10,10 @@ jobs:
   linux:
     runs-on: self-hosted
     steps:
+    - run: |
+        sudo rm -rf /home/ubuntu/actions-runner/_work/ruby-packer/ruby-packer/.rubyc-build.*
+        sudo rm -f /home/ubuntu/actions-runner/_work/ruby-packer/ruby-packer/rubyc-linux-x64
+
     - uses: actions/checkout@v2
 
     - run: sudo bin/build-linux.sh
